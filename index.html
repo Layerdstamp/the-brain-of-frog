@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta
+      name="description"
+      content="The Brain of Frog: an interactive neural universe scene built with Three.js."
+    />
+    <title>The Brain of Frog</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Space+Grotesk:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="scene"></canvas>
+      <div class="overlay">
+        <p class="kicker">Neural Cosmos Prototype</p>
+        <h1>The Brain of Frog</h1>
+        <p class="subtitle">
+          A living universe of layered thought-strands. Tap any glowing node to inspect future knowledge fragments.
+        </p>
+        <p class="hint">Drag to orbit. Scroll or pinch to zoom.</p>
+      </div>
+      <div id="node-info" aria-live="polite" class="node-info hidden"></div>
+    </div>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
