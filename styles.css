@@ -30,10 +30,51 @@ body {
     linear-gradient(160deg, var(--bg-a), var(--bg-b) 42%, var(--bg-c));
 }
 
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  inset: -20%;
+  pointer-events: none;
+}
+
+body::before {
+  background:
+    radial-gradient(circle at 20% 22%, rgba(168, 98, 255, 0.22), transparent 28%),
+    radial-gradient(circle at 78% 70%, rgba(74, 217, 255, 0.18), transparent 24%),
+    radial-gradient(circle at 52% 48%, rgba(255, 118, 232, 0.08), transparent 34%);
+  filter: blur(26px);
+  opacity: 0.95;
+}
+
+body::after {
+  background:
+    repeating-linear-gradient(
+      115deg,
+      rgba(255, 255, 255, 0.02) 0,
+      rgba(255, 255, 255, 0.02) 1px,
+      transparent 1px,
+      transparent 14px
+    );
+  mix-blend-mode: screen;
+  opacity: 0.12;
+}
+
 #app {
   position: relative;
   width: 100%;
   height: 100%;
+}
+
+#app::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 50%, transparent 0, transparent 45%, rgba(2, 2, 10, 0.3) 100%),
+    linear-gradient(180deg, rgba(6, 6, 16, 0.1), rgba(3, 2, 10, 0.5));
+  z-index: 1;
 }
 
 #scene {
@@ -48,11 +89,37 @@ body {
   top: clamp(12px, 3vw, 28px);
   left: clamp(12px, 3vw, 36px);
   max-width: min(560px, 90vw);
+  padding: clamp(16px, 2.8vw, 24px);
+  border: 1px solid rgba(166, 122, 255, 0.24);
+  border-radius: 22px;
+  background:
+    linear-gradient(160deg, rgba(10, 8, 24, 0.68), rgba(10, 10, 28, 0.42)),
+    radial-gradient(circle at top left, rgba(161, 115, 255, 0.14), transparent 48%);
+  backdrop-filter: blur(18px);
+  box-shadow:
+    0 20px 48px rgba(0, 0, 0, 0.34),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.02),
+    0 0 38px rgba(136, 88, 255, 0.13);
   z-index: 3;
   pointer-events: none;
   text-wrap: balance;
   text-shadow: 0 0 18px rgba(159, 111, 255, 0.3);
   animation: fade-in 900ms ease-out both;
+}
+
+.overlay::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent 30%, transparent 70%, rgba(102, 209, 255, 0.08));
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.overlay > * {
+  position: relative;
+  z-index: 1;
 }
 
 .kicker {
@@ -74,9 +141,28 @@ h1 {
 
 .subtitle {
   margin-top: clamp(10px, 2vw, 16px);
-  margin-bottom: 10px;
+  margin-bottom: 14px;
   font-size: clamp(0.95rem, 2.2vw, 1.1rem);
   line-height: 1.45;
+}
+
+.scene-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.scene-stats span {
+  padding: 7px 10px;
+  border: 1px solid rgba(130, 188, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(9, 12, 28, 0.46);
+  color: #eef2ff;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  box-shadow: inset 0 0 18px rgba(121, 92, 255, 0.08);
 }
 
 .hint {
@@ -90,10 +176,14 @@ h1 {
   right: clamp(10px, 3vw, 26px);
   bottom: clamp(10px, 3vw, 24px);
   max-width: min(460px, 92vw);
+  display: grid;
+  gap: 6px;
   padding: 12px 14px;
   border: 1px solid rgba(144, 94, 255, 0.35);
   border-radius: 14px;
-  background: rgba(7, 6, 18, 0.74);
+  background:
+    linear-gradient(180deg, rgba(10, 8, 24, 0.84), rgba(7, 6, 18, 0.74)),
+    radial-gradient(circle at top right, rgba(112, 214, 255, 0.1), transparent 42%);
   backdrop-filter: blur(12px);
   box-shadow:
     0 0 20px rgba(143, 91, 255, 0.26),
@@ -110,6 +200,28 @@ h1 {
   transform: translateY(10px);
 }
 
+.node-kicker {
+  color: #9fcfff;
+  font-family: "Orbitron", sans-serif;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.node-info strong {
+  font-size: 1rem;
+  letter-spacing: 0.02em;
+}
+
+.node-info span {
+  color: rgba(237, 242, 255, 0.82);
+  font-size: 0.84rem;
+}
+
+.node-info p {
+  margin: 2px 0 0;
+}
+
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -124,15 +236,24 @@ h1 {
 @media (max-width: 760px) {
   .overlay {
     top: max(env(safe-area-inset-top), 12px);
+    max-width: min(92vw, 520px);
   }
 
   .subtitle {
     max-width: 95%;
+  }
+
+  .scene-stats span {
+    font-size: 0.72rem;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .overlay {
     animation: none;
+  }
+
+  body::before {
+    filter: blur(12px);
   }
 }
