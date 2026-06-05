@@ -26,21 +26,30 @@
   </head>
   <body>
     <div id="app">
-      <canvas id="scene"></canvas>
-      <div class="overlay">
-        <p class="kicker">Neural Cosmos Prototype</p>
-        <h1>The Brain of Frog</h1>
-        <p class="subtitle">
-          A living brain-universe of braided synapse cathedrals, whispering dust, and luminous memory storms.
-        </p>
-        <div class="scene-stats" aria-hidden="true">
-          <span>4 neural shells</span>
-          <span>volumetric dust</span>
-          <span>explorable orbit</span>
+      <section class="scene-shell">
+        <canvas id="scene"></canvas>
+        <div class="overlay">
+          <p class="kicker">Neural Cosmos Prototype</p>
+          <h1>The Brain of Frog</h1>
+          <p class="subtitle">
+            A living brain-universe of braided synapse cathedrals, whispering dust, and luminous memory storms.
+          </p>
+          <div class="scene-stats" aria-hidden="true">
+            <span>4 neural shells</span>
+            <span>volumetric dust</span>
+            <span>explorable orbit</span>
+          </div>
+          <p class="hint">Drag to orbit. Scroll the page to dive deeper.</p>
         </div>
-        <p class="hint">Drag to orbit. Scroll or pinch to zoom.</p>
+        <div id="node-info" aria-live="polite" class="node-info hidden"></div>
+        <div class="scroll-cue" aria-hidden="true">Scroll to move through the brain-universe</div>
+      </section>
+      <div class="scroll-zones" aria-hidden="true">
+        <section class="scroll-zone"><span>Surface Hum</span></section>
+        <section class="scroll-zone"><span>Cortex Drift</span></section>
+        <section class="scroll-zone"><span>Signal Bloom</span></section>
+        <section class="scroll-zone"><span>Myth Fringe</span></section>
       </div>
-      <div id="node-info" aria-live="polite" class="node-info hidden"></div>
     </div>
     <script type="module" src="./src/main.js"></script>
   </body>

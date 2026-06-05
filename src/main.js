@@ -184,6 +184,7 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.04;
 controls.enablePan = false;
+controls.enableZoom = false;
 controls.minDistance = 7;
 controls.maxDistance = 34;
 controls.minPolarAngle = 0.35;
@@ -197,7 +198,7 @@ composer.addPass(new RenderPass(scene, camera));
 
 const bloomPass = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight),
-  isMobile ? 1.1 : 1.55,
+  isMobile ? 0.55 : 0.775,
   isMobile ? 0.34 : 0.42,
   0.08,
 );
@@ -234,7 +235,7 @@ const selectionRing = new THREE.Mesh(
   new THREE.MeshBasicMaterial({
     color: 0xeab8ff,
     transparent: true,
-    opacity: 0.86,
+    opacity: 0.43,
     side: THREE.DoubleSide,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
@@ -343,7 +344,7 @@ function createCore() {
     new THREE.MeshBasicMaterial({
       color: 0x8d62ff,
       transparent: true,
-      opacity: 0.11,
+      opacity: 0.055,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     }),
@@ -355,7 +356,7 @@ function createCore() {
       color: 0x71d3ff,
       wireframe: true,
       transparent: true,
-      opacity: 0.18,
+      opacity: 0.09,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     }),
@@ -367,7 +368,7 @@ function createCore() {
       color: 0xc67bff,
       wireframe: true,
       transparent: true,
-      opacity: 0.07,
+      opacity: 0.035,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     }),
@@ -379,7 +380,7 @@ function createCore() {
       color: 0x64d2ff,
       wireframe: true,
       transparent: true,
-      opacity: 0.05,
+      opacity: 0.025,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     }),
@@ -708,23 +709,23 @@ universe.add(coreGroup);
 
 const innerDust = createDustField({
   count: isMobile ? 1800 : 3200,
-  innerRadius: 4.8,
-  outerRadius: 24,
-  sizeRange: isMobile ? [1.8, 5.4] : [2.2, 7.2],
+  innerRadius: 5.8,
+  outerRadius: 36,
+  sizeRange: isMobile ? [2.4, 6.6] : [2.8, 8.8],
   opacityRange: [0.32, 0.9],
   palette: [COLORS.violet, COLORS.cyan, COLORS.magenta, COLORS.ember],
-  scale: isMobile ? 0.55 : 0.72,
+  scale: isMobile ? 0.64 : 0.88,
 });
 scene.add(innerDust.points);
 
 const deepDust = createDustField({
   count: isMobile ? 1300 : 2400,
-  innerRadius: 28,
-  outerRadius: 90,
-  sizeRange: isMobile ? [1.2, 3.2] : [1.4, 4.4],
+  innerRadius: 36,
+  outerRadius: 128,
+  sizeRange: isMobile ? [1.7, 4.1] : [2, 5.2],
   opacityRange: [0.18, 0.5],
   palette: [COLORS.violet, COLORS.indigo, COLORS.cyan],
-  scale: isMobile ? 0.35 : 0.46,
+  scale: isMobile ? 0.42 : 0.56,
 });
 scene.add(deepDust.points);
 
@@ -980,6 +981,18 @@ renderer.domElement.addEventListener('pointermove', onPointerMove, { passive: tr
 renderer.domElement.addEventListener('pointerdown', onPointerDown, { passive: true });
 renderer.domElement.addEventListener('pointerleave', () => pointerTarget.set(0, 0));
 
+const scrollState = {
+  progress: 0,
+};
+
+function updateScrollProgress() {
+  const maxScroll = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+  scrollState.progress = window.scrollY / maxScroll;
+}
+
+window.addEventListener('scroll', updateScrollProgress, { passive: true });
+updateScrollProgress();
+
 function resize() {
   const width = window.innerWidth;
   const height = window.innerHeight;
@@ -1000,6 +1013,9 @@ const clock = new THREE.Clock();
 function tick() {
   const elapsed = clock.getElapsedTime();
   const targetTime = elapsed * motionScale;
+  const scrollProgress = scrollState.progress;
+  const desiredDistance = THREE.MathUtils.lerp(isMobile ? 24 : 19, isMobile ? 9.5 : 7.8, scrollProgress);
+  const desiredTargetY = THREE.MathUtils.lerp(0.7, -0.2, scrollProgress);
 
   pointerLag.lerp(pointerTarget, 0.045);
 
@@ -1063,8 +1079,12 @@ function tick() {
   }
 
   controls.target.x = pointerLag.x * 0.55;
-  controls.target.y = 0.6 + pointerLag.y * 0.24;
+  controls.target.y = desiredTargetY + pointerLag.y * 0.24;
   controls.update();
+
+  const cameraOffset = camera.position.clone().sub(controls.target).normalize().multiplyScalar(desiredDistance);
+  camera.position.copy(controls.target).add(cameraOffset);
+
   composer.render();
   requestAnimationFrame(tick);
 }
