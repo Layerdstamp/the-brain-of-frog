@@ -70,8 +70,8 @@ void main() {
 
   float glow = exp(-dist * 4.8);
   float core = pow(max(0.0, 1.0 - dist * 1.3), 6.0);
-  vec3 color = vColor * (0.5 + glow * 1.1 + core * (0.7 + vSpark));
-  float alpha = min(1.0, glow * 0.52 + core * 0.84) * vAlpha;
+  vec3 color = vColor * (0.25 + glow * 0.55 + core * (0.35 + vSpark * 0.5));
+  float alpha = min(1.0, glow * 0.26 + core * 0.42) * vAlpha;
 
   gl_FragColor = vec4(color, alpha);
 }
@@ -712,7 +712,7 @@ const innerDust = createDustField({
   innerRadius: 5.8,
   outerRadius: 36,
   sizeRange: isMobile ? [2.4, 6.6] : [2.8, 8.8],
-  opacityRange: [0.32, 0.9],
+  opacityRange: [0.16, 0.45],
   palette: [COLORS.violet, COLORS.cyan, COLORS.magenta, COLORS.ember],
   scale: isMobile ? 0.64 : 0.88,
 });
@@ -723,7 +723,7 @@ const deepDust = createDustField({
   innerRadius: 36,
   outerRadius: 128,
   sizeRange: isMobile ? [1.7, 4.1] : [2, 5.2],
-  opacityRange: [0.18, 0.5],
+  opacityRange: [0.09, 0.25],
   palette: [COLORS.violet, COLORS.indigo, COLORS.cyan],
   scale: isMobile ? 0.42 : 0.56,
 });
