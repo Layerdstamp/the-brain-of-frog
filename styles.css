@@ -88,6 +88,25 @@ body::after {
   z-index: 2;
 }
 
+.top-title {
+  position: absolute;
+  top: max(env(safe-area-inset-top), 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  padding: 8px 14px;
+  border: 1px solid rgba(146, 104, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(7, 8, 18, 0.3);
+  backdrop-filter: blur(10px);
+  color: rgba(244, 246, 255, 0.8);
+  font-family: "Orbitron", sans-serif;
+  font-size: 0.76rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
 #scene {
   position: absolute;
   inset: 0;
@@ -269,25 +288,6 @@ body::after {
   font-size: 0.86rem;
 }
 
-.scroll-cue {
-  position: absolute;
-  left: 50%;
-  bottom: clamp(18px, 4vw, 34px);
-  transform: translateX(-50%);
-  z-index: 3;
-  padding: 8px 12px;
-  border: 1px solid rgba(146, 104, 255, 0.14);
-  border-radius: 999px;
-  background: rgba(7, 8, 18, 0.28);
-  backdrop-filter: blur(12px);
-  color: rgba(242, 245, 255, 0.55);
-  font-size: 0.72rem;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  box-shadow: 0 0 20px rgba(111, 94, 255, 0.08);
-  pointer-events: none;
-}
-
 .scroll-zones {
   position: relative;
   z-index: 2;
@@ -390,11 +390,6 @@ body::after {
     font-size: 0.88rem;
     line-height: 1.42;
     margin-bottom: 10px;
-  }
-
-  .scroll-cue {
-    width: calc(100vw - 24px);
-    text-align: center;
   }
 
   .scroll-zones {
