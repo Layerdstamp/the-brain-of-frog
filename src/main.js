@@ -1,16 +1,12 @@
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+// Using global THREE.js loaded via script tags
+// window.THREE, window.OrbitControls, window.THREE.EffectComposer, etc. are available globally
 
-if (typeof THREE !== 'undefined') {
-  console.log('THREE loaded successfully:', THREE.version);
-  document.body.setAttribute('data-three-loaded', 'true');
-} else {
-  console.error('THREE failed to load!');
-  document.body.setAttribute('data-three-error', 'true');
+if (typeof THREE === 'undefined') {
+  document.body.innerHTML = '<h1>Error: Three.js failed to load</h1>';
+  throw new Error('THREE.js is not defined');
 }
+
+console.log('THREE.js loaded successfully. Version:', THREE.version);
 
 const canvas = document.querySelector('#scene');
 const infoEl = document.querySelector('#node-info');
@@ -486,7 +482,7 @@ renderer.toneMappingExposure = 1.28;
 renderer.setClearColor(COLORS.void, 1);
 renderer.domElement.style.touchAction = isMobile ? 'manipulation' : 'pan-y';
 
-const controls = new OrbitControls(camera, renderer.domElement);
+const controls = new window.THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.04;
 controls.enablePan = false;
@@ -501,10 +497,10 @@ controls.autoRotateSpeed = isMobile ? 0.2 : 0.32;
 controls.rotateSpeed = isMobile ? 0.45 : 1;
 controls.target.set(0, 0.6, 0);
 
-const composer = new EffectComposer(renderer);
-composer.addPass(new RenderPass(scene, camera));
+const composer = new window.THREE.EffectComposer(renderer);
+composer.addPass(new window.THREE.RenderPass(scene, camera));
 
-const bloomPass = new UnrealBloomPass(
+const bloomPass = new window.THREE.UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight),
   isMobile ? 0.42 : 0.775,
   isMobile ? 0.26 : 0.42,
