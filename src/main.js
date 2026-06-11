@@ -7,11 +7,258 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 const canvas = document.querySelector('#scene');
 const infoEl = document.querySelector('#node-info');
 
+const NOTE_FILES = [
+  './inside_the_mind_of_frog_chunked_notes.txt',
+  './inside_the_mind_of_frog_second_relationship_layer.txt',
+];
+
+const noteState = {
+  entries: [],
+  byId: new Map(),
+  currentNodeId: null,
+  currentEntryIndex: -1,
+  loadError: null,
+};
+
+function hashString(value) {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+  return Math.abs(hash >>> 0);
+}
+
+function gcd(a, b) {
+  let left = a;
+  let right = b;
+  while (right !== 0) {
+    const temp = left % right;
+    left = right;
+    right = temp;
+  }
+  return left;
+}
+
+function escapeHtml(value) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function slugToTitle(path) {
+  const fileName = path.split('/').pop().replace('.txt', '');
+  return fileName
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function splitBoxedSections(text, sourceLabel) {
+  const normalized = text.replace(/\r/g, '').trim();
+  const matches = [
+    ...normalized.matchAll(/=+\n([^\n=][^\n]*)\n=+\n([\s\S]*?)(?=\n=+\n[^\n=][^\n]*\n=+\n|$)/g),
+  ];
+
+  return matches
+    .map((match, index) => {
+      const title = match[1].trim();
+      const body = match[2].trim();
+      if (!title || !body) {
+        return null;
+      }
+
+      return {
+        id: `${sourceLabel}-boxed-${index + 1}`,
+        title,
+        body,
+        source: sourceLabel,
+      };
+    })
+    .filter(Boolean);
+}
+
+function splitNodeSections(text, sourceLabel) {
+  const normalized = text.replace(/\r/g, '').trim();
+  const matches = [...normalized.matchAll(/(?:^|\n)Node:\s*(.+)\n([\s\S]*?)(?=\nNode:\s*|$)/g)];
+
+  return matches
+    .map((match, index) => {
+      const title = match[1].trim();
+      const body = match[2].trim();
+      if (!title || !body) {
+        return null;
+      }
+
+      return {
+        id: `${sourceLabel}-node-${index + 1}`,
+        title,
+        body,
+        source: sourceLabel,
+      };
+    })
+    .filter(Boolean);
+}
+
+function splitParagraphSections(text, sourceLabel) {
+  const normalized = text.replace(/\r/g, '');
+  const blocks = normalized
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+
+  const sections = [];
+
+  for (let i = 0; i < blocks.length - 1; i += 1) {
+    const title = blocks[i];
+    const body = blocks[i + 1];
+
+    if (!title || !body) {
+      continue;
+    }
+
+    if (title.includes('=') || title.length > 88 || title.split('\n').length > 1) {
+      continue;
+    }
+
+    if (!/[A-Za-z]/.test(title) || body.length < 60) {
+      continue;
+    }
+
+    sections.push({
+      id: `${sourceLabel}-paragraph-${sections.length + 1}`,
+      title,
+      body,
+      source: sourceLabel,
+    });
+  }
+
+  return sections;
+}
+
+async function loadNoteEntries() {
+  const loaded = await Promise.all(
+    NOTE_FILES.map(async (path) => {
+      const response = await fetch(path);
+      if (!response.ok) {
+        throw new Error(`Failed to load ${path}`);
+      }
+
+      const text = await response.text();
+      const sourceLabel = slugToTitle(path);
+      return {
+        boxed: splitBoxedSections(text, sourceLabel),
+        nodes: splitNodeSections(text, sourceLabel),
+        paragraphs: splitParagraphSections(text, sourceLabel),
+      };
+    }),
+  );
+
+  const entries = [];
+  const seen = new Set();
+
+  for (const source of loaded) {
+    for (const entry of [...source.boxed, ...source.nodes, ...source.paragraphs]) {
+      const key = `${entry.title}:::${entry.body.slice(0, 180)}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      entries.push(entry);
+    }
+  }
+
+  if (entries.length === 0) {
+    entries.push({
+      id: 'fallback-1',
+      title: 'Inside The Mind Of Frog',
+      source: 'Local Notes',
+      body: 'Your text files are loaded, but no structured sections were detected. Keep using ====== separators and headings to map content into node cards.',
+    });
+  }
+
+  noteState.entries = entries;
+}
+
+function assignEntriesToNodes() {
+  noteState.byId.clear();
+
+  if (noteState.entries.length === 0 || nodeRecords.length === 0) {
+    return;
+  }
+
+  const applyNodeVisualState = (record) => {
+    if (!record.meta.hasContent) {
+      record.core.userData.baseScaleMultiplier = 0.76;
+      record.core.material.color.copy(record.core.userData.baseColor).multiplyScalar(0.52);
+      record.halo.material.opacity = 0.075;
+      record.beacon.visible = false;
+      return;
+    }
+
+    if (record.meta.read) {
+      record.core.userData.baseScaleMultiplier = 0.95;
+      record.core.material.color.copy(record.core.userData.contentColor).multiplyScalar(0.68);
+      record.halo.material.opacity = 0.11;
+      record.beacon.visible = false;
+      return;
+    }
+
+    record.core.userData.baseScaleMultiplier = 1.18;
+    record.core.material.color.copy(record.core.userData.contentColor);
+    record.halo.material.opacity = 0.25;
+    record.beacon.visible = true;
+  };
+
+  noteState.applyNodeVisualState = applyNodeVisualState;
+
+  for (let i = 0; i < nodeRecords.length; i += 1) {
+    const record = nodeRecords[i];
+    record.meta.hasContent = false;
+    record.meta.read = false;
+    applyNodeVisualState(record);
+  }
+
+  const prioritized = [...nodeRecords].sort((left, right) => {
+    const leftScore = hashString(`${left.meta.shell}|${left.meta.id}`) + left.meta.degree * 113;
+    const rightScore = hashString(`${right.meta.shell}|${right.meta.id}`) + right.meta.degree * 113;
+    return rightScore - leftScore;
+  });
+
+  const totalEntries = noteState.entries.length;
+  const activeCount = Math.min(totalEntries, prioritized.length);
+  let stride = 17;
+  while (gcd(stride, totalEntries) !== 1) {
+    stride += 2;
+  }
+
+  for (let i = 0; i < activeCount; i += 1) {
+    const record = prioritized[i];
+    const base = hashString(`${record.meta.shell}|${record.meta.id}|${record.meta.shellIndex}`);
+    const entryIndex = (base + i * stride) % totalEntries;
+
+    noteState.byId.set(record.meta.id, {
+      ...noteState.entries[entryIndex],
+      entryIndex,
+    });
+
+    record.meta.hasContent = true;
+    applyNodeVisualState(record);
+  }
+}
+
 const MOBILE_QUERY = '(max-width: 820px), (pointer: coarse)';
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 const isMobile = window.matchMedia(MOBILE_QUERY).matches;
 const prefersReducedMotion = window.matchMedia(REDUCED_MOTION_QUERY).matches;
 const motionScale = prefersReducedMotion ? 0.4 : 1;
+const UNIVERSE_SCALE = isMobile ? 1.46 : 2.1;
+const LINK_OPACITY_SCALE = isMobile ? 0.72 : 0.62;
+const EDGE_DENSITY = isMobile ? 0.52 : 0.46;
 
 const COLORS = {
   void: new THREE.Color(0x02030a),
@@ -37,21 +284,24 @@ void main() {
   vColor = color;
   vAlpha = aAlpha;
 
-  float time = uTime * 0.22;
+  float time = uTime * 0.14;
   vec3 pos = position;
   float radial = length(pos.xz);
-  float drift = sin(time + aPhase + radial * 0.09) * 0.35;
-  float rise = cos(time * 1.4 + aPhase + pos.y * 0.18) * 0.48;
 
-  pos.x += cos(aPhase + time + radial * 0.03) * drift;
+  float swirl = time + aPhase + radial * 0.06;
+  float drift  = sin(swirl) * 0.52 + sin(swirl * 2.3 + 1.1) * 0.18;
+  float rise   = cos(time * 1.1 + aPhase + pos.y * 0.12) * 0.62
+                + sin(time * 0.7 + aPhase * 1.4) * 0.22;
+
+  pos.x += cos(aPhase * 0.9 + time * 0.8 + radial * 0.022) * drift;
   pos.y += rise;
-  pos.z += sin(aPhase * 1.2 - time + radial * 0.04) * drift;
+  pos.z += sin(aPhase * 1.1 - time * 0.9 + radial * 0.028) * drift;
 
-  vSpark = 0.5 + 0.5 * sin(uTime * 1.8 + aPhase * 4.5);
+  vSpark = 0.5 + 0.5 * sin(uTime * 1.4 + aPhase * 5.8);
 
   vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
   gl_Position = projectionMatrix * mvPosition;
-  gl_PointSize = aSize * uScale * (320.0 / -mvPosition.z);
+  gl_PointSize = aSize * uScale * (340.0 / -mvPosition.z);
 }
 `;
 
@@ -68,12 +318,59 @@ void main() {
     discard;
   }
 
-  float glow = exp(-dist * 4.8);
-  float core = pow(max(0.0, 1.0 - dist * 1.3), 6.0);
-  vec3 color = vColor * (0.25 + glow * 0.55 + core * (0.35 + vSpark * 0.5));
-  float alpha = min(1.0, glow * 0.26 + core * 0.42) * vAlpha;
+  float glow = exp(-dist * 3.6);
+  float core = pow(max(0.0, 1.0 - sqrt(dist)), 3.4);
+  vec3 color = vColor * (0.18 + glow * 0.62 + core * (0.4 + vSpark * 0.55));
+  float alpha = min(1.0, glow * 0.22 + core * 0.48) * vAlpha;
 
   gl_FragColor = vec4(color, alpha);
+}
+`;
+
+/* ─── Wisp particle trail shader ─────────────────────────────────────── */
+const WISP_VERTEX_SHADER = `
+uniform float uTime;
+uniform float uScale;
+uniform vec3 uColorA;
+uniform vec3 uColorB;
+attribute float aSize;
+attribute float aPhase;
+attribute float aAlpha;
+attribute float aCurveT;
+attribute vec3 aScatter;
+varying vec3 vColor;
+varying float vAlpha;
+
+void main() {
+  float tw = aCurveT;
+  float sparkle = 0.52 + 0.48 * sin(uTime * 1.8 + aPhase * 11.0);
+
+  vec3 pos = position + aScatter * (0.72 + 0.28 * sin(uTime * 0.68 + aPhase * 5.2));
+  pos.x += sin(uTime * 0.44 + aPhase * 7.3) * 0.14;
+  pos.y += cos(uTime * 0.38 + aPhase * 6.1) * 0.11;
+  pos.z += sin(uTime * 0.52 + aPhase * 8.4 + 1.3) * 0.13;
+
+  vColor = mix(uColorA, uColorB, tw) * (0.8 + 0.5 * sparkle);
+  vAlpha = aAlpha * sparkle;
+
+  vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+  gl_Position = projectionMatrix * mvPosition;
+  gl_PointSize = aSize * uScale * (300.0 / -mvPosition.z);
+}
+`;
+
+const WISP_FRAGMENT_SHADER = `
+varying vec3 vColor;
+varying float vAlpha;
+
+void main() {
+  vec2 uv = gl_PointCoord * 2.0 - 1.0;
+  float d = dot(uv, uv);
+  if (d > 1.0) discard;
+  float core = pow(max(0.0, 1.0 - sqrt(d)), 2.6);
+  float halo = exp(-d * 2.8);
+  float bright = core * 0.78 + halo * 0.34;
+  gl_FragColor = vec4(vColor * (1.0 + core * 0.7), bright * vAlpha);
 }
 `;
 
@@ -174,23 +471,26 @@ const renderer = new THREE.WebGLRenderer({
   powerPreference: 'high-performance',
 });
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.15 : 2));
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.28;
 renderer.setClearColor(COLORS.void, 1);
+renderer.domElement.style.touchAction = isMobile ? 'manipulation' : 'pan-y';
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.04;
 controls.enablePan = false;
-controls.enableZoom = false;
-controls.minDistance = 7;
-controls.maxDistance = 34;
+controls.enableZoom = true;
+controls.zoomSpeed = isMobile ? 0.38 : 0.6;
+controls.minDistance = 6;
+controls.maxDistance = 82;
 controls.minPolarAngle = 0.35;
 controls.maxPolarAngle = Math.PI - 0.35;
 controls.autoRotate = !prefersReducedMotion;
-controls.autoRotateSpeed = isMobile ? 0.24 : 0.32;
+controls.autoRotateSpeed = isMobile ? 0.2 : 0.32;
+controls.rotateSpeed = isMobile ? 0.45 : 1;
 controls.target.set(0, 0.6, 0);
 
 const composer = new EffectComposer(renderer);
@@ -198,11 +498,15 @@ composer.addPass(new RenderPass(scene, camera));
 
 const bloomPass = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight),
-  isMobile ? 0.55 : 0.775,
-  isMobile ? 0.34 : 0.42,
+  isMobile ? 0.42 : 0.775,
+  isMobile ? 0.26 : 0.42,
   0.08,
 );
 composer.addPass(bloomPass);
+
+/* Shared time uniform referenced by every wisp trail material */
+const wispSharedUniforms = { uTime: { value: 0 } };
+const allWispPoints = [];
 
 const universe = new THREE.Group();
 scene.add(universe);
@@ -223,12 +527,15 @@ const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 const nodeMeshes = [];
 const nodeRecords = [];
+const nodeRecordById = new Map();
+const nodeRecordByMesh = new Map();
 const travelPulses = [];
 const orbitRibbons = [];
 const shellGroups = [];
 
 const nodeGeometry = new THREE.SphereGeometry(isMobile ? 0.13 : 0.15, isMobile ? 10 : 14, isMobile ? 10 : 14);
 const nodeHaloGeometry = new THREE.SphereGeometry(isMobile ? 0.28 : 0.32, isMobile ? 10 : 14, isMobile ? 10 : 14);
+const nodeBeaconGeometry = new THREE.TorusGeometry(isMobile ? 0.26 : 0.3, isMobile ? 0.022 : 0.026, 8, 34);
 const pulseGeometry = new THREE.SphereGeometry(isMobile ? 0.06 : 0.075, 10, 10);
 const selectionRing = new THREE.Mesh(
   new THREE.RingGeometry(0.72, 0.9, 56),
@@ -446,10 +753,23 @@ function createNodeRecord(position, config, index) {
     new THREE.MeshBasicMaterial({ color: config.nodeColor }),
   );
 
+  const beacon = new THREE.Mesh(
+    nodeBeaconGeometry,
+    new THREE.MeshBasicMaterial({
+      color: 0xd4f5ff,
+      transparent: true,
+      opacity: 0.82,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+  );
+  beacon.visible = false;
+  beacon.rotation.x = Math.PI * 0.5;
+
   const baseScale = THREE.MathUtils.randFloat(0.72, 1.34);
   core.scale.setScalar(baseScale);
   halo.scale.setScalar(baseScale * 1.95);
-  group.add(halo, core);
+  group.add(beacon, halo, core);
 
   const meta = {
     id: nodeRecords.length + 1,
@@ -457,25 +777,34 @@ function createNodeRecord(position, config, index) {
     cluster: config.cluster,
     degree: 0,
     shellIndex: index,
+    hasContent: false,
+    read: false,
   };
 
   core.userData.baseScale = baseScale;
+  core.userData.baseScaleMultiplier = 1;
+  core.userData.baseColor = new THREE.Color(config.nodeColor);
+  core.userData.contentColor = new THREE.Color(config.nodeColor).lerp(new THREE.Color(0xf2fbff), 0.34);
   core.userData.nodeGroup = group;
   core.userData.meta = meta;
 
   nodeMeshes.push(core);
+  nodeRecordByMesh.set(core, null);
   universe.add(group);
 
   const record = {
     group,
     core,
     halo,
+    beacon,
     position,
     meta,
     phase: Math.random() * Math.PI * 2,
   };
 
   nodeRecords.push(record);
+  nodeRecordById.set(meta.id, record);
+  nodeRecordByMesh.set(core, record);
   return record;
 }
 
@@ -491,31 +820,88 @@ function createCurveBetween(start, end, lift, sway) {
 
   binormal.normalize();
   const distance = start.distanceTo(end);
-  const controlA = start.clone().lerp(end, 0.28)
-    .addScaledVector(outward, lift + distance * 0.12)
-    .addScaledVector(binormal, sway);
-  const controlB = start.clone().lerp(end, 0.72)
-    .addScaledVector(outward, lift * 0.84 + distance * 0.1)
-    .addScaledVector(binormal, -sway * 0.72);
+  const wiggle = Math.sin(distance * 0.35 + sway * 0.6);
+  const controlA = start.clone().lerp(end, 0.24)
+    .addScaledVector(outward, lift + distance * 0.22)
+    .addScaledVector(binormal, sway * (1.2 + wiggle * 0.28));
+  const controlB = start.clone().lerp(end, 0.5)
+    .addScaledVector(outward, lift * 1.18 + distance * 0.18)
+    .addScaledVector(binormal, -sway * 0.52);
+  const controlC = start.clone().lerp(end, 0.76)
+    .addScaledVector(outward, lift * 0.88 + distance * 0.15)
+    .addScaledVector(binormal, sway * 0.85);
 
-  return new THREE.CatmullRomCurve3([start, controlA, controlB, end], false, 'catmullrom', 0.12);
+  return new THREE.CatmullRomCurve3([start, controlA, controlB, controlC, end], false, 'centripetal', 0.7);
 }
 
-function createFilament(curve, config, materials) {
-  const group = new THREE.Group();
-  const tubularSegments = isMobile ? config.segmentsMobile : config.segmentsDesktop;
-  const filamentRadius = config.filamentRadius ?? config.radius;
-  const tube = new THREE.Mesh(
-    new THREE.TubeGeometry(curve, tubularSegments, filamentRadius, 5, false),
-    materials.outer,
-  );
-  const trace = new THREE.Line(
-    new THREE.BufferGeometry().setFromPoints(curve.getPoints(tubularSegments * 2)),
-    materials.inner,
-  );
+function createWispTrail(curve, colorA, colorB, scatter) {
+  const COUNT = isMobile ? 22 : 42;
+  const positions  = new Float32Array(COUNT * 3);
+  const scatters   = new Float32Array(COUNT * 3);
+  const sizes      = new Float32Array(COUNT);
+  const phases     = new Float32Array(COUNT);
+  const alphas     = new Float32Array(COUNT);
+  const curveTVals = new Float32Array(COUNT);
 
-  group.add(tube, trace);
-  return group;
+  const up = new THREE.Vector3(0, 1, 0);
+  const tangentScratch = new THREE.Vector3();
+  const perpA = new THREE.Vector3();
+  const perpB = new THREE.Vector3();
+
+  for (let i = 0; i < COUNT; i += 1) {
+    const t = i / (COUNT - 1);
+    const pt = curve.getPoint(t);
+    curve.getTangent(t, tangentScratch);
+    tangentScratch.normalize();
+
+    perpA.crossVectors(tangentScratch, up).normalize();
+    if (perpA.lengthSq() < 0.001) {
+      perpA.set(1, 0, 0);
+    }
+    perpB.crossVectors(tangentScratch, perpA).normalize();
+
+    const angle = Math.random() * Math.PI * 2;
+    const r = Math.sqrt(Math.random()) * scatter;
+
+    positions[i * 3]     = pt.x;
+    positions[i * 3 + 1] = pt.y;
+    positions[i * 3 + 2] = pt.z;
+
+    scatters[i * 3]     = perpA.x * Math.cos(angle) * r + perpB.x * Math.sin(angle) * r;
+    scatters[i * 3 + 1] = perpA.y * Math.cos(angle) * r + perpB.y * Math.sin(angle) * r;
+    scatters[i * 3 + 2] = perpA.z * Math.cos(angle) * r + perpB.z * Math.sin(angle) * r;
+
+    sizes[i]      = THREE.MathUtils.randFloat(1.1, isMobile ? 2.8 : 3.8);
+    phases[i]     = Math.random();
+    alphas[i]     = THREE.MathUtils.randFloat(0.28, 0.78);
+    curveTVals[i] = t;
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position',  new THREE.BufferAttribute(positions,  3));
+  geometry.setAttribute('aScatter',  new THREE.BufferAttribute(scatters,   3));
+  geometry.setAttribute('aSize',     new THREE.BufferAttribute(sizes,      1));
+  geometry.setAttribute('aPhase',    new THREE.BufferAttribute(phases,     1));
+  geometry.setAttribute('aAlpha',    new THREE.BufferAttribute(alphas,     1));
+  geometry.setAttribute('aCurveT',   new THREE.BufferAttribute(curveTVals, 1));
+
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime:   wispSharedUniforms.uTime,
+      uScale:  { value: isMobile ? 0.72 : 1.0 },
+      uColorA: { value: new THREE.Color(colorA) },
+      uColorB: { value: new THREE.Color(colorB) },
+    },
+    vertexShader:   WISP_VERTEX_SHADER,
+    fragmentShader: WISP_FRAGMENT_SHADER,
+    transparent:    true,
+    depthWrite:     false,
+    blending:       THREE.AdditiveBlending,
+  });
+
+  const points = new THREE.Points(geometry, material);
+  allWispPoints.push(points);
+  return points;
 }
 
 function maybeAddPulse(curve, material, probability) {
@@ -541,38 +927,19 @@ function buildShellNetwork(config) {
   const records = points.map((point, index) => createNodeRecord(point, config, index));
   const edgeSet = new Set();
 
-  const materials = {
-    outer: new THREE.MeshBasicMaterial({
-      color: config.edgeColor,
-      transparent: true,
-      opacity: config.opacity,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    }),
-    inner: new THREE.LineBasicMaterial({
-      color: config.innerColor,
-      transparent: true,
-      opacity: config.innerOpacity,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    }),
-    pulse: new THREE.MeshBasicMaterial({
-      color: config.innerColor,
-      transparent: true,
-      opacity: 0.88,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    }),
-  };
+  const pulseMaterial = new THREE.MeshBasicMaterial({
+    color: config.innerColor,
+    transparent: true,
+    opacity: 0.88,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
 
   for (let i = 0; i < records.length; i += 1) {
     const candidates = [];
 
     for (let j = 0; j < records.length; j += 1) {
-      if (i === j) {
-        continue;
-      }
-
+      if (i === j) { continue; }
       const distanceSquared = records[i].position.distanceToSquared(records[j].position);
       if (distanceSquared <= config.maxDistance * config.maxDistance) {
         candidates.push({ index: j, distanceSquared });
@@ -580,14 +947,16 @@ function buildShellNetwork(config) {
     }
 
     candidates.sort((left, right) => left.distanceSquared - right.distanceSquared);
+    const neighborLimit = Math.min(Math.max(1, config.nearest - 1), candidates.length);
 
-    for (let k = 0; k < Math.min(config.nearest, candidates.length); k += 1) {
+    for (let k = 0; k < neighborLimit; k += 1) {
       const j = candidates[k].index;
       const key = i < j ? `${i}:${j}` : `${j}:${i}`;
+      if (edgeSet.has(key)) { continue; }
 
-      if (edgeSet.has(key)) {
-        continue;
-      }
+      const edgeSeed = ((i + 1) * 73856093) ^ ((j + 1) * 19349663);
+      const edgeChance = ((edgeSeed >>> 0) % 1000) / 1000;
+      if (edgeChance > EDGE_DENSITY) { continue; }
 
       edgeSet.add(key);
       records[i].meta.degree += 1;
@@ -600,8 +969,9 @@ function buildShellNetwork(config) {
         THREE.MathUtils.randFloatSpread(config.sway),
       );
 
-      shellGroup.add(createFilament(curve, config, materials));
-      maybeAddPulse(curve, materials.pulse, config.pulseChance);
+      const wispScatter = (config.filamentRadius ?? 0.032) * 18;
+      shellGroup.add(createWispTrail(curve, config.edgeColor, config.innerColor, wispScatter));
+      maybeAddPulse(curve, pulseMaterial, config.pulseChance);
     }
   }
 
@@ -612,31 +982,19 @@ function buildShellNetwork(config) {
 
 function connectShells(innerShell, outerShell, options) {
   const group = new THREE.Group();
-  const materials = {
-    outer: new THREE.MeshBasicMaterial({
-      color: options.edgeColor,
-      transparent: true,
-      opacity: options.opacity,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    }),
-    inner: new THREE.LineBasicMaterial({
-      color: options.innerColor,
-      transparent: true,
-      opacity: options.innerOpacity,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    }),
-    pulse: new THREE.MeshBasicMaterial({
-      color: options.innerColor,
-      transparent: true,
-      opacity: 0.82,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    }),
-  };
+
+  const pulseMaterial = new THREE.MeshBasicMaterial({
+    color: options.innerColor,
+    transparent: true,
+    opacity: 0.82,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
 
   for (let i = 0; i < outerShell.records.length; i += options.step) {
+    const bridgeChance = (((i + 1) * 2654435761) >>> 0) % 1000 / 1000;
+    if (bridgeChance > EDGE_DENSITY + 0.12) { continue; }
+
     const from = outerShell.records[i];
     let best = null;
     let bestDistance = Infinity;
@@ -644,23 +1002,21 @@ function connectShells(innerShell, outerShell, options) {
     for (let j = 0; j < innerShell.records.length; j += 1) {
       const to = innerShell.records[j];
       const distanceSquared = from.position.distanceToSquared(to.position);
-
       if (distanceSquared < bestDistance) {
         bestDistance = distanceSquared;
         best = to;
       }
     }
 
-    if (!best) {
-      continue;
-    }
+    if (!best) { continue; }
 
     from.meta.degree += 1;
     best.meta.degree += 1;
 
     const curve = createCurveBetween(from.position, best.position, options.archLift, THREE.MathUtils.randFloatSpread(options.sway));
-    group.add(createFilament(curve, options, materials));
-    maybeAddPulse(curve, materials.pulse, options.pulseChance);
+    const wispScatter = (options.radius ?? 0.028) * 22;
+    group.add(createWispTrail(curve, options.edgeColor, options.innerColor, wispScatter));
+    maybeAddPulse(curve, pulseMaterial, options.pulseChance);
   }
 
   shellGroups.push(group);
@@ -701,6 +1057,105 @@ function createOrbitRibbon(config) {
   universe.add(ribbon);
 }
 
+function getEntryForRecord(record, requestedEntryIndex = null) {
+  if (noteState.entries.length === 0) {
+    return {
+      title: `Neuron ${record.meta.id}`,
+      body: 'No notes are loaded yet for this node.',
+      source: 'Local',
+      entryIndex: -1,
+    };
+  }
+
+  if (requestedEntryIndex !== null && requestedEntryIndex >= 0 && requestedEntryIndex < noteState.entries.length) {
+    const requestedEntry = {
+      ...noteState.entries[requestedEntryIndex],
+      entryIndex: requestedEntryIndex,
+    };
+    noteState.byId.set(record.meta.id, requestedEntry);
+    return requestedEntry;
+  }
+
+  const mapped = noteState.byId.get(record.meta.id);
+  if (mapped) {
+    return mapped;
+  }
+
+  const index = (record.meta.id - 1) % noteState.entries.length;
+  const entry = {
+    ...noteState.entries[index],
+    entryIndex: index,
+  };
+  noteState.byId.set(record.meta.id, entry);
+  return entry;
+}
+
+function hideNodeInfo() {
+  noteState.currentNodeId = null;
+  noteState.currentEntryIndex = -1;
+  selectionRing.visible = false;
+  infoEl.classList.add('hidden');
+}
+
+function renderCardBody(text) {
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (paragraphs.length === 0) {
+    return '<p class="node-paragraph">No content available for this thought node yet.</p>';
+  }
+
+  const visibleParagraphs = paragraphs.slice(0, 4);
+  const body = visibleParagraphs
+    .map((paragraph) => `<p class="node-paragraph">${escapeHtml(paragraph).replace(/\n/g, '<br />')}</p>`)
+    .join('');
+
+  if (paragraphs.length <= visibleParagraphs.length) {
+    return body;
+  }
+
+  return `${body}<p class="node-paragraph node-truncated">This node has more text. Use Next to keep exploring the universe archive.</p>`;
+}
+
+function renderNodeInfo(record, entry) {
+  const hasNavigation = noteState.entries.length > 1;
+  const indexDisplay = entry.entryIndex >= 0 ? `${entry.entryIndex + 1}/${noteState.entries.length}` : 'local';
+
+  infoEl.innerHTML = `
+    <div class="node-panel-head">
+      <div>
+        <div class="node-kicker">${escapeHtml(record.meta.shell)} · ${escapeHtml(entry.source)}</div>
+        <strong>${escapeHtml(entry.title)}</strong>
+        <span>Neuron ${record.meta.id} · ${escapeHtml(record.meta.cluster)} · ${record.meta.degree} live synapse links</span>
+      </div>
+      <button type="button" class="node-close" data-action="close" aria-label="Close thought card">Close</button>
+    </div>
+    <div class="node-panel-tools">
+      <button type="button" class="node-jump" data-action="prev" ${hasNavigation ? '' : 'disabled'} aria-label="Open previous thought">Previous</button>
+      <span class="node-index">${indexDisplay}</span>
+      <button type="button" class="node-jump" data-action="next" ${hasNavigation ? '' : 'disabled'} aria-label="Open next thought">Next</button>
+    </div>
+    <div class="node-copy">${renderCardBody(entry.body)}</div>
+  `;
+}
+  if (hasNavigation) {
+    infoEl.innerHTML += '<p class="node-swipe-hint" aria-hidden="true">← swipe to explore →</p>';
+  }
+}
+
+function pickContentRecord(intersections) {
+  for (let i = 0; i < intersections.length; i += 1) {
+    const record = nodeRecordByMesh.get(intersections[i].object);
+    if (record && record.meta.hasContent) {
+      return record;
+    }
+  }
+
+  return null;
+}
+
 const nebulaShell = createNebulaShell();
 scene.add(nebulaShell);
 
@@ -708,7 +1163,7 @@ const coreGroup = createCore();
 universe.add(coreGroup);
 
 const innerDust = createDustField({
-  count: isMobile ? 1800 : 3200,
+  count: isMobile ? 980 : 3200,
   innerRadius: 5.8,
   outerRadius: 36,
   sizeRange: isMobile ? [2.4, 6.6] : [2.8, 8.8],
@@ -719,7 +1174,7 @@ const innerDust = createDustField({
 scene.add(innerDust.points);
 
 const deepDust = createDustField({
-  count: isMobile ? 1300 : 2400,
+  count: isMobile ? 760 : 2400,
   innerRadius: 36,
   outerRadius: 128,
   sizeRange: isMobile ? [1.7, 4.1] : [2, 5.2],
@@ -729,12 +1184,69 @@ const deepDust = createDustField({
 });
 scene.add(deepDust.points);
 
+/* ─── Galaxy-arm nebula band ──────────────────────────────────────────── */
+function createGalaxyArm(count, armAngle, colorHex) {
+  const positions = new Float32Array(count * 3);
+  const colors    = new Float32Array(count * 3);
+  const sizes     = new Float32Array(count);
+  const phases    = new Float32Array(count);
+  const alphas    = new Float32Array(count);
+  const clr = new THREE.Color(colorHex);
+
+  for (let i = 0; i < count; i += 1) {
+    const t      = i / count;
+    const radius = THREE.MathUtils.lerp(16, 90, Math.pow(t, 0.6));
+    const spread = THREE.MathUtils.lerp(2.2, 14, t);
+    const theta  = armAngle + t * Math.PI * 3.4 + THREE.MathUtils.randFloatSpread(0.32);
+    const phi    = Math.PI * 0.5 + THREE.MathUtils.randFloatSpread(spread * 0.08);
+
+    positions[i * 3]     = radius * Math.sin(phi) * Math.cos(theta) + THREE.MathUtils.randFloatSpread(spread);
+    positions[i * 3 + 1] = radius * Math.cos(phi) * THREE.MathUtils.randFloat(0.1, 0.42) + THREE.MathUtils.randFloatSpread(spread * 0.6);
+    positions[i * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta) + THREE.MathUtils.randFloatSpread(spread);
+
+    const fade = Math.pow(1 - t, 0.7);
+    colors[i * 3]     = clr.r;
+    colors[i * 3 + 1] = clr.g;
+    colors[i * 3 + 2] = clr.b;
+
+    sizes[i]  = THREE.MathUtils.randFloat(1.4, isMobile ? 4.8 : 7.2);
+    phases[i] = Math.random() * Math.PI * 2;
+    alphas[i] = THREE.MathUtils.randFloat(0.06, 0.22) * fade;
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('color',    new THREE.BufferAttribute(colors, 3));
+  geo.setAttribute('aSize',    new THREE.BufferAttribute(sizes, 1));
+  geo.setAttribute('aPhase',   new THREE.BufferAttribute(phases, 1));
+  geo.setAttribute('aAlpha',   new THREE.BufferAttribute(alphas, 1));
+
+  const uniforms = { uTime: { value: 0 }, uScale: { value: isMobile ? 0.5 : 0.72 } };
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: DUST_VERTEX_SHADER,
+    fragmentShader: DUST_FRAGMENT_SHADER,
+    transparent: true,
+    vertexColors: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+
+  return { points: new THREE.Points(geo, mat), uniforms };
+}
+
+const armCount = isMobile ? 480 : 1100;
+const galaxyArm1 = createGalaxyArm(armCount, 0.0,        0x6a3aff);
+const galaxyArm2 = createGalaxyArm(armCount, Math.PI,    0x3a9fff);
+const galaxyArm3 = createGalaxyArm(armCount, Math.PI * 0.65, 0xb03aff);
+scene.add(galaxyArm1.points, galaxyArm2.points, galaxyArm3.points);
+
 const shellConfigs = [
   {
     name: 'Mnemonic Seed',
     cluster: 'inner pulse',
     shellRadius: 2.9,
-    count: isMobile ? 14 : 22,
+    count: isMobile ? 10 : 15,
     nearest: 2,
     maxDistance: 4.8,
     archLift: 0.5,
@@ -762,7 +1274,7 @@ const shellConfigs = [
     name: 'Dream Cortex',
     cluster: 'braided memory',
     shellRadius: 4.7,
-    count: isMobile ? 20 : 30,
+    count: isMobile ? 14 : 22,
     nearest: 3,
     maxDistance: 6.5,
     archLift: 0.9,
@@ -790,7 +1302,7 @@ const shellConfigs = [
     name: 'Signal Bloom',
     cluster: 'astral lattice',
     shellRadius: 6.8,
-    count: isMobile ? 28 : 42,
+    count: isMobile ? 18 : 28,
     nearest: 3,
     maxDistance: 8.2,
     archLift: 1.2,
@@ -818,7 +1330,7 @@ const shellConfigs = [
     name: 'Cosmic Fringe',
     cluster: 'outer myth',
     shellRadius: 9.3,
-    count: isMobile ? 34 : 52,
+    count: isMobile ? 22 : 34,
     nearest: 2,
     maxDistance: 9.6,
     archLift: 1.5,
@@ -844,7 +1356,16 @@ const shellConfigs = [
   },
 ];
 
-const shells = shellConfigs.map((config) => buildShellNetwork(config));
+const shells = shellConfigs.map((config) => {
+  const scaledConfig = {
+    ...config,
+
+    <div class="node-copy">${renderCardBody(entry.body)}</div>
+    ${hasNavigation ? '<p class="node-swipe-hint" aria-hidden="true">← swipe to explore →</p>' : ''}
+    maxDistance: config.maxDistance * UNIVERSE_SCALE,
+
+  return buildShellNetwork(scaledConfig);
+});
 
 connectShells(shells[0], shells[1], {
   step: isMobile ? 2 : 2,
@@ -889,9 +1410,9 @@ connectShells(shells[2], shells[3], {
 });
 
 createOrbitRibbon({
-  radiusX: 12.5,
-  radiusZ: 10.8,
-  height: 2.1,
+  radiusX: 12.5 * UNIVERSE_SCALE,
+  radiusZ: 10.8 * UNIVERSE_SCALE,
+  height: 2.1 * UNIVERSE_SCALE,
   turns: 3,
   phase: 0.4,
   radius: isMobile ? 0.042 : 0.056,
@@ -904,9 +1425,9 @@ createOrbitRibbon({
 });
 
 createOrbitRibbon({
-  radiusX: 14.2,
-  radiusZ: 11.6,
-  height: 2.8,
+  radiusX: 14.2 * UNIVERSE_SCALE,
+  radiusZ: 11.6 * UNIVERSE_SCALE,
+  height: 2.8 * UNIVERSE_SCALE,
   turns: 4,
   phase: 2.2,
   radius: isMobile ? 0.034 : 0.046,
@@ -919,9 +1440,9 @@ createOrbitRibbon({
 });
 
 createOrbitRibbon({
-  radiusX: 16.6,
-  radiusZ: 14.4,
-  height: 3.6,
+  radiusX: 16.6 * UNIVERSE_SCALE,
+  radiusZ: 14.4 * UNIVERSE_SCALE,
+  height: 3.6 * UNIVERSE_SCALE,
   turns: 5,
   phase: 4.1,
   radius: isMobile ? 0.028 : 0.04,
@@ -934,52 +1455,140 @@ createOrbitRibbon({
 });
 
 function showNodeInfo(record) {
-  selectionRing.visible = true;
-  selectionRing.position.copy(record.group.position);
+  const entry = getEntryForRecord(record);
+  noteState.currentNodeId = record.meta.id;
+  noteState.currentEntryIndex = entry.entryIndex;
 
-  infoEl.innerHTML = `
-    <div class="node-kicker">${record.meta.shell}</div>
-    <strong>Neuron ${record.meta.id}</strong>
-    <span>${record.meta.cluster} · ${record.meta.degree} live synapse links</span>
-    <p>Knowledge paragraph slot is armed here. This node can open one of your future text fragments inside the brain universe.</p>
-  `;
-  infoEl.classList.remove('hidden');
-}
-
-function updatePointerFromEvent(event) {
-  const rect = renderer.domElement.getBoundingClientRect();
-  const localX = (event.clientX - rect.left) / rect.width;
-  const localY = (event.clientY - rect.top) / rect.height;
-
-  pointer.x = localX * 2 - 1;
-  pointer.y = -(localY * 2 - 1);
-  pointerTarget.set(pointer.x, pointer.y);
-}
-
-function onPointerMove(event) {
-  updatePointerFromEvent(event);
-}
-
-function onPointerDown(event) {
-  updatePointerFromEvent(event);
-  raycaster.setFromCamera(pointer, camera);
-  const intersections = raycaster.intersectObjects(nodeMeshes, false);
-
-  if (intersections.length > 0) {
-    const record = nodeRecords.find((entry) => entry.core === intersections[0].object);
-    if (record) {
-      showNodeInfo(record);
-      return;
+  if (!record.meta.read) {
+    record.meta.read = true;
+    if (typeof noteState.applyNodeVisualState === 'function') {
+      noteState.applyNodeVisualState(record);
     }
   }
 
-  selectionRing.visible = false;
-  infoEl.classList.add('hidden');
+  selectionRing.visible = true;
+  selectionRing.position.copy(record.group.position);
+
+  renderNodeInfo(record, entry);
+
+  infoEl.classList.remove('hidden');
 }
 
-renderer.domElement.addEventListener('pointermove', onPointerMove, { passive: true });
-renderer.domElement.addEventListener('pointerdown', onPointerDown, { passive: true });
-renderer.domElement.addEventListener('pointerleave', () => pointerTarget.set(0, 0));
+function stepCurrentEntry(delta) {
+  if (noteState.currentNodeId === null || noteState.entries.length === 0) {
+    return;
+  }
+
+  const record = nodeRecordById.get(noteState.currentNodeId);
+  if (!record) {
+    return;
+  }
+
+  const currentIndex = noteState.currentEntryIndex >= 0 ? noteState.currentEntryIndex : 0;
+  const nextIndex = (currentIndex + delta + noteState.entries.length) % noteState.entries.length;
+  const nextEntry = getEntryForRecord(record, nextIndex);
+
+  noteState.currentEntryIndex = nextEntry.entryIndex;
+  renderNodeInfo(record, nextEntry);
+  infoEl.classList.remove('hidden');
+}
+
+/* ─── Unified pointer / touch interaction ─────────────────────────── */
+const interactionState = { downX: 0, downY: 0, moved: false, pointerId: null };
+
+function readClientXY(event) {
+  if (event.changedTouches && event.changedTouches.length > 0) {
+    return { x: event.changedTouches[0].clientX, y: event.changedTouches[0].clientY };
+  }
+  return { x: event.clientX, y: event.clientY };
+}
+
+function setPointerFromXY(x, y) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointer.x  =  ((x - rect.left) / rect.width)  * 2 - 1;
+  pointer.y  = -((y - rect.top)  / rect.height)  * 2 + 1;
+  pointerTarget.set(pointer.x, pointer.y);
+}
+
+function onCanvasPointerMove(event) {
+  const { x, y } = readClientXY(event);
+  setPointerFromXY(x, y);
+  if (interactionState.pointerId !== null) {
+    const dx = x - interactionState.downX;
+    const dy = y - interactionState.downY;
+    if (dx * dx + dy * dy > 36) interactionState.moved = true;
+  }
+  if (!isMobile) {
+    raycaster.setFromCamera(pointer, camera);
+    const hits = raycaster.intersectObjects(nodeMeshes, false);
+    renderer.domElement.style.cursor = pickContentRecord(hits) ? 'pointer' : 'grab';
+  }
+}
+
+function onCanvasPointerDown(event) {
+  const { x, y } = readClientXY(event);
+  interactionState.downX     = x;
+  interactionState.downY     = y;
+  interactionState.moved     = false;
+  interactionState.pointerId = event.pointerId ?? 0;
+  setPointerFromXY(x, y);
+}
+
+function onCanvasPointerUp(event) {
+  if (interactionState.moved) { interactionState.pointerId = null; return; }
+  interactionState.pointerId = null;
+  const { x, y } = readClientXY(event);
+  setPointerFromXY(x, y);
+  raycaster.setFromCamera(pointer, camera);
+  const record = pickContentRecord(raycaster.intersectObjects(nodeMeshes, false));
+  if (record) { showNodeInfo(record); } else { hideNodeInfo(); }
+}
+
+renderer.domElement.addEventListener('pointermove',   onCanvasPointerMove,  { passive: true });
+renderer.domElement.addEventListener('pointerdown',   onCanvasPointerDown,  { passive: true });
+renderer.domElement.addEventListener('pointerup',     onCanvasPointerUp,    { passive: true });
+renderer.domElement.addEventListener('pointercancel', () => { interactionState.pointerId = null; }, { passive: true });
+renderer.domElement.addEventListener('pointerleave',  () => {
+  pointerTarget.set(0, 0);
+  if (!isMobile) renderer.domElement.style.cursor = 'grab';
+});
+if (!isMobile) renderer.domElement.style.cursor = 'grab';
+
+/* Card panel: swipe left/right + button taps ─────────────────────── */
+const panelSwipe = { startX: 0, startY: 0, active: false };
+infoEl.addEventListener('touchstart', (event) => {
+  event.stopPropagation();
+  if (event.touches.length === 1) {
+    panelSwipe.startX = event.touches[0].clientX;
+    panelSwipe.startY = event.touches[0].clientY;
+    panelSwipe.active = true;
+  }
+}, { passive: true });
+infoEl.addEventListener('touchend', (event) => {
+  event.stopPropagation();
+  if (!panelSwipe.active) return;
+  panelSwipe.active = false;
+  const dx = event.changedTouches[0].clientX - panelSwipe.startX;
+  const dy = event.changedTouches[0].clientY - panelSwipe.startY;
+  if (Math.abs(dx) > 44 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+    stepCurrentEntry(dx < 0 ? 1 : -1);
+  }
+}, { passive: true });
+infoEl.addEventListener('pointerdown', (e) => e.stopPropagation(), { passive: true });
+infoEl.addEventListener('click', (event) => {
+  const actionEl = event.target instanceof HTMLElement && event.target.closest('[data-action]');
+  if (!actionEl) return;
+  const action = actionEl.getAttribute('data-action');
+  if (action === 'close') { hideNodeInfo();      return; }
+  if (action === 'prev')  { stepCurrentEntry(-1); return; }
+  if (action === 'next')  { stepCurrentEntry(1);  }
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape')     { hideNodeInfo();       return; }
+  if (noteState.currentNodeId !== null && event.key === 'ArrowLeft')  { stepCurrentEntry(-1); return; }
+  if (noteState.currentNodeId !== null && event.key === 'ArrowRight') { stepCurrentEntry(1);  }
+});
 
 const scrollState = {
   progress: 0,
@@ -993,6 +1602,27 @@ function updateScrollProgress() {
 window.addEventListener('scroll', updateScrollProgress, { passive: true });
 updateScrollProgress();
 
+async function initializeNotes() {
+  try {
+    await loadNoteEntries();
+    assignEntriesToNodes();
+  } catch (error) {
+    noteState.loadError = error instanceof Error ? error.message : 'Unknown error';
+    noteState.entries = [
+      {
+        id: 'load-error',
+        title: 'Thought Archive Unavailable',
+        source: 'Local Notes',
+        body: `The note files could not be loaded: ${noteState.loadError}`,
+        entryIndex: 0,
+      },
+    ];
+    assignEntriesToNodes();
+  }
+}
+
+initializeNotes();
+
 function resize() {
   const width = window.innerWidth;
   const height = window.innerHeight;
@@ -1000,7 +1630,7 @@ function resize() {
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
 
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.15 : 2));
   renderer.setSize(width, height, false);
   composer.setSize(width, height);
   bloomPass.setSize(width, height);
@@ -1014,18 +1644,23 @@ function tick() {
   const elapsed = clock.getElapsedTime();
   const targetTime = elapsed * motionScale;
   const scrollProgress = scrollState.progress;
-  const desiredDistance = THREE.MathUtils.lerp(isMobile ? 24 : 19, isMobile ? 9.5 : 7.8, scrollProgress);
-  const desiredTargetY = THREE.MathUtils.lerp(0.7, -0.2, scrollProgress);
+  const desiredDistance = THREE.MathUtils.lerp(isMobile ? 44 : 52, isMobile ? 11.5 : 9.4, scrollProgress);
+  const desiredTargetY = THREE.MathUtils.lerp(1.4, -0.7, scrollProgress);
 
-  pointerLag.lerp(pointerTarget, 0.045);
+  pointerLag.lerp(pointerTarget, isMobile ? 0.028 : 0.045);
 
   coreUniforms.uTime.value = targetTime;
   nebulaUniforms.uTime.value = targetTime;
   innerDust.uniforms.uTime.value = targetTime;
   deepDust.uniforms.uTime.value = targetTime;
+  wispSharedUniforms.uTime.value = targetTime;
+  galaxyArm1.uniforms.uTime.value = targetTime;
+  galaxyArm2.uniforms.uTime.value = targetTime;
+  galaxyArm3.uniforms.uTime.value = targetTime;
 
-  universe.rotation.x = Math.sin(targetTime * 0.18) * 0.05 + pointerLag.y * 0.14;
-  universe.rotation.z = Math.cos(targetTime * 0.13) * 0.03 - pointerLag.x * 0.08;
+  const pLag = isMobile ? 0.05 : 0.14;
+  universe.rotation.x = Math.sin(targetTime * 0.18) * 0.05 + pointerLag.y * pLag;
+  universe.rotation.z = Math.cos(targetTime * 0.13) * 0.03 - pointerLag.x * (pLag * 0.57);
 
   innerDust.points.rotation.y = targetTime * 0.045;
   innerDust.points.rotation.z = Math.sin(targetTime * 0.12) * 0.08;
@@ -1060,8 +1695,14 @@ function tick() {
     const record = nodeRecords[i];
     const pulse = 1 + Math.sin(targetTime * 2.6 + record.phase + record.meta.degree * 0.14) * 0.2;
     const haloPulse = 1 + Math.sin(targetTime * 1.8 + record.phase) * 0.14;
-    record.core.scale.setScalar(record.core.userData.baseScale * pulse);
+    const multiplier = record.core.userData.baseScaleMultiplier ?? 1;
+    record.core.scale.setScalar(record.core.userData.baseScale * multiplier * pulse);
     record.halo.scale.setScalar(record.core.userData.baseScale * 1.95 * haloPulse);
+    if (record.beacon.visible) {
+      record.beacon.rotation.z += 0.018;
+      const beaconScale = 0.86 + Math.sin(targetTime * 2.1 + record.phase) * 0.14;
+      record.beacon.scale.setScalar(beaconScale);
+    }
   }
 
   for (let i = 0; i < travelPulses.length; i += 1) {

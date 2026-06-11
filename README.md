@@ -7,7 +7,7 @@ A mobile-optimized Three.js neural universe prototype with layered strands, bloo
 Because this uses ES modules, run it from a local server instead of opening `index.html` directly.
 
 ```powershell
-cd "c:\Users\alexy\Dropbox\help center\the-brain-of-frog"
+cd ".\"
 python -m http.server 5173
 ```
 
