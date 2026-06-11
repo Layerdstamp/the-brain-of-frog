@@ -4,6 +4,14 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
+if (typeof THREE !== 'undefined') {
+  console.log('THREE loaded successfully:', THREE.version);
+  document.body.setAttribute('data-three-loaded', 'true');
+} else {
+  console.error('THREE failed to load!');
+  document.body.setAttribute('data-three-error', 'true');
+}
+
 const canvas = document.querySelector('#scene');
 const infoEl = document.querySelector('#node-info');
 
