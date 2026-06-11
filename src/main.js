@@ -1139,7 +1139,7 @@ function renderNodeInfo(record, entry) {
     </div>
     <div class="node-copy">${renderCardBody(entry.body)}</div>
   `;
-}
+
   if (hasNavigation) {
     infoEl.innerHTML += '<p class="node-swipe-hint" aria-hidden="true">← swipe to explore →</p>';
   }
@@ -1359,11 +1359,8 @@ const shellConfigs = [
 const shells = shellConfigs.map((config) => {
   const scaledConfig = {
     ...config,
-
-    <div class="node-copy">${renderCardBody(entry.body)}</div>
-    ${hasNavigation ? '<p class="node-swipe-hint" aria-hidden="true">← swipe to explore →</p>' : ''}
     maxDistance: config.maxDistance * UNIVERSE_SCALE,
-
+  };
   return buildShellNetwork(scaledConfig);
 });
 
